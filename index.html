@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlyLab - 果蝇管理系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js"></script>
+    <!-- 引入Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <style>
+        /* 样式保持不变 */
+    </style>
+</head>
+<body>
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner"></div>
+    </div>
+    
+    <div class="toast-container" id="toastContainer"></div>
+    
+    <!-- 认证页面 -->
+    <div class="page active" id="authPage">
+        <!-- 认证页面内容保持不变 -->
+    </div>
+    
+    <!-- 主应用页面 -->
+    <div class="page" id="appPage">
+        <div class="app-container">
+            <!-- 应用头部保持不变 -->
+            
+            <!-- 添加管页面 -->
+            <div class="page active" id="addPage">
+                <!-- 添加管页面内容保持不变 -->
+            </div>
+            
+            <!-- 管记录管理页面 -->
+            <div class="page" id="managePage">
+                <!-- 管理页面内容保持不变 -->
+            </div>
+            
+            <!-- 历史记录页面 -->
+            <div class="page" id="historyPage">
+                <!-- 历史记录页面内容保持不变 -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Firebase配置 - 使用您提供的配置
+        const firebaseConfig = {
+            apiKey: "AIzaSyB1J5Fdh2ABdqEUGCYQWZJXUhQDHckuJGU",
+            authDomain: "flylab-d2093.firebaseapp.com",
+            databaseURL: "https://flylab-d2093-default-rtdb.firebaseio.com",
+            projectId: "flylab-d2093",
+            storageBucket: "flylab-d2093.firebasestorage.app",
+            messagingSenderId: "225754181316",
+            appId: "1:225754181316:web:ee9ce404f2318a81c5e391",
+            measurementId: "G-S20G8B14V9"
+        };
+        
+        // 初始化Firebase
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+        const auth = firebase.auth();
+        
+        // 初始基因型列表
+        const initialGenotypes = [
+            '95282', '67031', '7415', 'Da-Gal4', 
+            'PLA-287', 'PLA-189', 'PLA-89', 
+            'PLA-41TC', 'PLA-WT', 'PLA-97'
+        ];
+        
+        // 当前用户ID
+        let currentUserId = null;
+        
+        // 获取或初始化基因型列表
+        async function getGenotypes() {
+            if (!currentUserId) return initialGenotypes;
+            
+            try {
+                const snapshot = await database.ref(`users/${currentUserId}/genotypes`).once('value');
+                return snapshot.val() || initialGenotypes;
+            } catch (error) {
+                console.error('获取基因型列表失败:', error);
+                return initialGenotypes;
+            }
+        }
+        
+        // 保存基因型列表
+        async function saveGenotypes(genotypes) {
+            if (!currentUserId) return;
+            
+            try {
+                await database.ref(`users/${currentUserId}/genotypes`).set(genotypes);
+            } catch (error) {
+                console.error('保存基因型列表失败:', error);
+            }
+        }
+        
+        // 获取或初始化批次数据
+        async function getBatches() {
+            if (!currentUserId) return [];
+            
+            try {
+                const snapshot = await database.ref(`users/${currentUserId}/batches`).once('value');
+                const batchesData = snapshot.val();
+                
+                if (!batchesData) return [];
+                
+                // 将Firebase对象转换为数组
+                return Object.keys(batchesData).map(key => ({
+                    id: key,
+                    ...batchesData[key]
+                }));
+            } catch (error) {
+                console.error('获取批次数据失败:', error);
+                return [];
+            }
+        }
+        
+        // 保存批次数据
+        async function saveBatches(batches) {
+            if (!currentUserId) return;
+            
+            try {
+                // 将数组转换为Firebase对象
+                const batchesObj = {};
+                batches.forEach(batch => {
+                    batchesObj[batch.id] = batch;
+                });
+                
+                await database.ref(`users/${currentUserId}/batches`).set(batchesObj);
+            } catch (error) {
+                console.error('保存批次数据失败:', error);
+            }
+        }
+        
+        // 获取或初始化历史记录
+        async function getHistory() {
+            if (!currentUserId) return [];
+            
+            try {
+                const snapshot = await database.ref(`users/${currentUserId}/history`).once('value');
+                const historyData = snapshot.val();
+                
+                if (!historyData) return [];
+                
+                // 将Firebase对象转换为数组
+                return Object.keys(historyData).map(key => historyData[key]);
+            } catch (error) {
+                console.error('获取历史记录失败:', error);
+                return [];
+            }
+        }
+        
+        // 保存历史记录
+        async function saveHistory(history) {
+            if (!currentUserId) return;
+            
+            try {
+                // 将数组转换为Firebase对象
+                const historyObj = {};
+                history.forEach((record, index) => {
+                    historyObj[`record_${index}`] = record;
+                });
+                
+                await database.ref(`users/${currentUserId}/history`).set(historyObj);
+            } catch (error) {
+                console.error('保存历史记录失败:', error);
+            }
+        }
+        
+        // 计算天数差（今天减去添加日期）
+        function calculateDays(startDate) {
+            const start = new Date(startDate);
+            const today = new Date();
+            
+            // 将时间都设置为午夜，避免时间部分影响
+            start.setHours(0, 0, 0, 0);
+            today.setHours(0, 0, 0, 0);
+            
+            const diffTime = today - start;
+            return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+        }
+        
+        // 根据管类型和天数确定高亮类
+        function getHighlightClass(tubeType, days) {
+            switch(tubeType) {
+                case 'expansion':
+                    if ([5, 7, 9].includes(days)) return 'highlight-expansion';
+                    break;
+                case 'hybrid':
+                    if ([3, 4, 5].includes(days)) return 'highlight-hybrid';
+                    break;
+                case 'lifespan':
+                    if (days % 7 === 0) return 'highlight-lifespan-7';
+                    if (days % 2 === 0) return 'highlight-lifespan-2';
+                    break;
+                case 'negative':
+                    if ([7, 15, 21, 30].includes(days)) return 'highlight-negative';
+                    break;
+                case 'stock':
+                    if (days > 30) return 'highlight-stock-overdue';
+                    if (days % 7 === 0) return 'highlight-stock';
+                    break;
+            }
+            return '';
+        }
+        
+        // 显示加载动画
+        function showLoading() {
+            document.getElementById('loadingOverlay').style.display = 'flex';
+        }
+        
+        // 隐藏加载动画
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+        
+        // 显示通知
+        function showToast(title, message, type = 'info') {
+            const toastContainer = document.getElementById('toastContainer');
+            const toastEl = document.createElement('div');
+            
+            const icons = {
+                success: 'check-circle',
+                error: 'exclamation-circle',
+                warning: 'exclamation-triangle',
+                info: 'info-circle'
+            };
+            
+            toastEl.className = 'toast';
+            toastEl.innerHTML = `
+                <div class="toast-icon">
+                    <i class="fas fa-${icons[type] || 'info-circle'}"></i>
+                </div>
+                <div class="toast-content">
+                    <div class="toast-title">${title}</div>
+                    <div class="toast-message">${message}</div>
+                </div>
+            `;
+            
+            toastContainer.appendChild(toastEl);
+            
+            // 显示toast
+            setTimeout(() => {
+                toastEl.classList.add('show');
+            }, 10);
+            
+            // 自动移除
+            setTimeout(() => {
+                toastEl.classList.remove('show');
+                setTimeout(() => {
+                    toastContainer.removeChild(toastEl);
+                }, 300);
+            }, 5000);
+        }
+        
+        // 渲染基因型选择区域
+        function renderGenotypeInputs() {
+            const tubeType = document.getElementById('tubeType').value;
+            const container = document.getElementById('genotypeRow');
+            container.innerHTML = '';
+            
+            const genotypes = getGenotypes();
+            
+            // 创建第一个基因型输入
+            const col1 = document.createElement('div');
+            col1.className = 'col-md-6';
+            
+            const label1 = document.createElement('label');
+            label1.className = 'form-label';
+            label1.textContent = '基因型 1';
+            
+            const select1 = document.createElement('select');
+            select1.className = 'form-select mb-2';
+            select1.id = 'genotype1';
+            select1.required = true;
+            
+            // 添加选项
+            const defaultOption = document.createElement('option');
+            defaultOption.value = '';
+            defaultOption.textContent = '选择基因型';
+            select1.appendChild(defaultOption);
+            
+            genotypes.forEach(genotype => {
+                const option = document.createElement('option');
+                option.value = genotype;
+                option.textContent = genotype;
+                select1.appendChild(option);
+            });
+            
+            // 添加手动输入选项
+            const manualOption = document.createElement('option');
+            manualOption.value = 'manual';
+            manualOption.textContent = '手动输入...';
+            select1.appendChild(manualOption);
+            
+            // 手动输入框
+            const manualInput1 = document.createElement('input');
+            manualInput1.type = 'text';
+            manualInput1.className = 'form-control d-none mt-2';
+            manualInput1.id = 'manualGenotype1';
+            manualInput1.placeholder = '输入新基因型';
+            
+            col1.appendChild(label1);
+            col1.appendChild(select1);
+            col1.appendChild(manualInput1);
+            container.appendChild(col1);
+            
+            // 为第一个选择框添加事件监听
+            select1.addEventListener('change', function() {
+                if (this.value === 'manual') {
+                    manualInput1.classList.remove('d-none');
+                    manualInput1.required = true;
+                } else {
+                    manualInput1.classList.add('d-none');
+                    manualInput1.required = false;
+                }
+            });
+            
+            // 如果需要第二个基因型
+            if (['hybrid', 'lifespan', 'negative', 'stock'].includes(tubeType)) {
+                const col2 = document.createElement('div');
+                col2.className = 'col-md-6';
+                
+                const label2 = document.createElement('label');
+                label2.className = 'form-label';
+                label2.textContent = '基因型 2';
+                
+                const select2 = document.createElement('select');
+                select2.className = 'form-select mb-2';
+                select2.id = 'genotype2';
+                select2.required = true;
+                
+                // 添加选项
+                const defaultOption2 = document.createElement('option');
+                defaultOption2.value = '';
+                defaultOption2.textContent = '选择基因型';
+                select2.appendChild(defaultOption2);
+                
+                genotypes.forEach(genotype => {
+                    const option = document.createElement('option');
+                    option.value = genotype;
+                    option.textContent = genotype;
+                    select2.appendChild(option);
+                });
+                
+                // 添加手动输入选项
+                const manualOption2 = document.createElement('option');
+                manualOption2.value = 'manual';
+                manualOption2.textContent = '手动输入...';
+                select2.appendChild(manualOption2);
+                
+                // 手动输入框
+                const manualInput2 = document.createElement('input');
+                manualInput2.type = 'text';
+                manualInput2.className = 'form-control d-none mt-2';
+                manualInput2.id = 'manualGenotype2';
+                manualInput2.placeholder = '输入新基因型';
+                
+                col2.appendChild(label2);
+                col2.appendChild(select2);
+                col2.appendChild(manualInput2);
+                container.appendChild(col2);
+                
+                // 为第二个选择框添加事件监听
+                select2.addEventListener('change', function() {
+                    if (this.value === 'manual') {
+                        manualInput2.classList.remove('d-none');
+                        manualInput2.required = true;
+                    } else {
+                        manualInput2.classList.add('d-none');
+                        manualInput2.required = false;
+                    }
+                });
+            }
+        }
+        
+        // 获取类型名称
+        function getTypeName(type) {
+            const typeNames = {
+                'expansion': '扩繁管',
+                'hybrid': '杂交管',
+                'virgin': '处女蝇管',
+                'lifespan': '寿命管',
+                'negative': '负向趋地实验管',
+                'stock': '保种管'
+            };
+            return typeNames[type] || type;
+        }
+        
+        // 格式化基因型显示
+        function formatGenotype(tube) {
+            if (tube.genotype2) {
+                return `${tube.genotype1} × ${tube.genotype2}`;
+            }
+            return tube.genotype1;
+        }
+        
+        // 添加新管
+        async function addTube(event) {
+            event.preventDefault();
+            
+            showLoading();
+            
+            try {
+                const tubeDate = document.getElementById('tubeDate').value;
+                const tubeType = document.getElementById('tubeType').value;
+                const tubeCount = parseInt(document.getElementById('tubeCount').value);
+                
+                // 获取基因型1
+                let genotype1 = document.getElementById('genotype1').value;
+                if (genotype1 === 'manual') {
+                    genotype1 = document.getElementById('manualGenotype1').value.trim();
+                    if (genotype1) {
+                        const added = await addGenotype(genotype1);
+                        if (added) {
+                            showToast('新基因型添加', `已添加新基因型: ${genotype1}`, 'success');
+                        }
+                    }
+                }
+                
+                // 获取基因型2（如果需要）
+                let genotype2 = '';
+                if (['hybrid', 'lifespan', 'negative', 'stock'].includes(tubeType)) {
+                    genotype2 = document.getElementById('genotype2').value;
+                    if (genotype2 === 'manual') {
+                        genotype2 = document.getElementById('manualGenotype2').value.trim();
+                        if (genotype2) {
+                            const added = await addGenotype(genotype2);
+                            if (added) {
+                                showToast('新基因型添加', `已添加新基因型: ${genotype2}`, 'success');
+                            }
+                        }
+                    }
+                }
+                
+                // 验证输入
+                if (!tubeDate || !tubeType || !genotype1) {
+                    hideLoading();
+                    showToast('表单验证失败', '请填写所有必填字段', 'error');
+                    return;
+                }
+                
+                // 获取批次数据
+                const batches = await getBatches();
+                
+                // 查找或创建批次
+                let batch = batches.find(b => b.date === tubeDate);
+                if (!batch) {
+                    batch = {
+                        id: Date.now().toString(),
+                        date: tubeDate,
+                        tubes: [],
+                        expanded: true // 新批次默认展开
+                    };
+                    batches.push(batch);
+                }
+                
+                // 添加管（根据数量添加多个）
+                for (let i = 0; i < tubeCount; i++) {
+                    batch.tubes.push({
+                        id: Date.now().toString() + i,
+                        date: tubeDate,
+                        type: tubeType,
+                        genotype1: genotype1,
+                        genotype2: genotype2 || null
+                    });
+                }
+                
+                // 保存数据
+                await saveBatches(batches);
+                
+                // 重置表单
+                document.getElementById('tubeForm').reset();
+                document.getElementById('tubeDate').valueAsDate = new Date();
+                renderGenotypeInputs();
+                
+                // 显示成功消息
+                showToast('添加成功', `已成功添加 ${tubeCount} 个果蝇管`, 'success');
+                
+                // 刷新批次显示
+                if (document.getElementById('managePage').classList.contains('active')) {
+                    renderBatches();
+                }
+            } catch (error) {
+                console.error('添加果蝇管时出错:', error);
+                showToast('添加失败', '请检查输入后重试', 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        // 渲染批次和管记录
+        async function renderBatches() {
+            showLoading();
+            
+            try {
+                const batches = await getBatches();
+                const container = document.getElementById('batchesContainer');
+                container.innerHTML = '';
+                
+                if (batches.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-icon">
+                                <i class="fas fa-vial"></i>
+                            </div>
+                            <h4>暂无果蝇管记录</h4>
+                            <p>请添加新的果蝇管以开始管理</p>
+                        </div>
+                    `;
+                    hideLoading();
+                    return;
+                }
+                
+                // 搜索功能
+                const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+                
+                batches.forEach(batch => {
+                    // 检查批次是否匹配搜索词
+                    const batchMatches = batch.date.toLowerCase().includes(searchTerm);
+                    
+                    // 过滤批次中的管
+                    const filteredTubes = batch.tubes.filter(tube => {
+                        return (
+                            batchMatches || 
+                            formatGenotype(tube).toLowerCase().includes(searchTerm) || 
+                            getTypeName(tube.type).toLowerCase().includes(searchTerm)
+                        );
+                    });
+                    
+                    if (filteredTubes.length === 0) return;
+                    
+                    const batchElement = document.createElement('div');
+                    batchElement.className = 'batch-card';
+                    
+                    const batchHeader = document.createElement('div');
+                    batchHeader.className = `batch-header ${batch.expanded ? 'expanded' : ''}`;
+                    batchHeader.setAttribute('data-batch-id', batch.id);
+                    batchHeader.innerHTML = `
+                        <div class="batch-title">
+                            <i class="fas fa-chevron-down collapse-icon"></i>
+                            <span>批次: ${batch.date}</span>
+                            <span class="batch-date">${filteredTubes.length}个管</span>
+                        </div>
+                        <div class="batch-actions">
+                            <button class="action-btn delete-batch" data-batch-id="${batch.id}">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    `;
+                    
+                    const tubesContainer = document.createElement('div');
+                    tubesContainer.className = `tubes-container ${batch.expanded ? 'expanded' : ''}`;
+                    
+                    filteredTubes.forEach(tube => {
+                        const days = calculateDays(tube.date);
+                        const highlightClass = getHighlightClass(tube.type, days);
+                        
+                        const tubeElement = document.createElement('div');
+                        tubeElement.className = `tube-row ${highlightClass}`;
+                        tubeElement.innerHTML = `
+                            <div class="tube-info">
+                                <input type="checkbox" class="batch-checkbox tube-checkbox" data-batch-id="${batch.id}" data-tube-id="${tube.id}">
+                                <span class="tube-type">${getTypeName(tube.type)}</span>
+                                <span class="tube-genotype">${formatGenotype(tube)}</span>
+                            </div>
+                            <div class="tube-days">
+                                <span class="days-badge">${days}天</span>
+                                <button class="action-btn delete-tube" data-batch-id="${batch.id}" data-tube-id="${tube.id}">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        `;
+                        tubesContainer.appendChild(tubeElement);
+                    });
+                    
+                    batchElement.appendChild(batchHeader);
+                    batchElement.appendChild(tubesContainer);
+                    container.appendChild(batchElement);
+                });
+                
+                // 设置复选框状态
+                updateDeleteButtonState();
+                
+                hideLoading();
+            } catch (error) {
+                console.error('渲染批次时出错:', error);
+                hideLoading();
+            }
+        }
+        
+        // 渲染历史记录
+        async function renderHistory() {
+            showLoading();
+            
+            try {
+                const history = await getHistory();
+                const container = document.getElementById('historyTableBody');
+                const emptyState = document.getElementById('historyEmptyState');
+                container.innerHTML = '';
+                
+                if (history.length === 0) {
+                    emptyState.classList.remove('d-none');
+                    hideLoading();
+                    return;
+                }
+                
+                emptyState.classList.add('d-none');
+                
+                history.forEach(record => {
+                    const days = calculateDays(record.date);
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>
+                            <input type="checkbox" class="history-checkbox" data-id="${record.id}">
+                        </td>
+                        <td>${record.date}</td>
+                        <td><span class="tube-type">${getTypeName(record.type)}</span></td>
+                        <td>${formatGenotype(record)}</td>
+                        <td>${days}天</td>
+                        <td>
+                            <button class="action-btn restore-btn" data-id="${record.id}">
+                                <i class="fas fa-undo"></i>
+                            </button>
+                            <button class="action-btn delete-btn" data-id="${record.id}">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    `;
+                    container.appendChild(row);
+                });
+                
+                hideLoading();
+            } catch (error) {
+                console.error('渲染历史记录时出错:', error);
+                hideLoading();
+            }
+        }
+        
+        // 删除批次
+        async function deleteBatch(batchId) {
+            if (!confirm('确定要删除整个批次吗？此操作会将批次中的所有管移到回收站。')) return;
+            
+            showLoading();
+            
+            try {
+                const batches = await getBatches();
+                const history = await getHistory();
+                
+                const batchIndex = batches.findIndex(b => b.id === batchId);
+                if (batchIndex !== -1) {
+                    // 将批次中的所有管移到历史记录
+                    history.push(...batches[batchIndex].tubes);
+                    
+                    // 删除批次
+                    batches.splice(batchIndex, 1);
+                    
+                    // 保存数据
+                    await saveBatches(batches);
+                    await saveHistory(history);
+                    
+                    // 刷新显示
+                    renderBatches();
+                    renderHistory();
+                    
+                    showToast('批次已删除', '批次已移至历史记录', 'success');
+                }
+            } catch (error) {
+                console.error('删除批次时出错:', error);
+                showToast('删除失败', '请重试', 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        // 删除管
+        async function deleteTube(batchId, tubeId) {
+            if (!confirm('确定要删除此果蝇管吗？此操作会将管移到回收站。')) return;
+            
+            showLoading();
+            
+            try {
+                const batches = await getBatches();
+                const history = await getHistory();
+                
+                const batchIndex = batches.findIndex(b => b.id === batchId);
+                if (batchIndex !== -1) {
+                    const batch = batches[batchIndex];
+                    const tubeIndex = batch.tubes.findIndex(t => t.id === tubeId);
+                    
+                    if (tubeIndex !== -1) {
+                        // 将管移到历史记录
+                        history.push(batch.tubes[tubeIndex]);
+                        
+                        // 从批次中删除管
+                        batch.tubes.splice(tubeIndex, 1);
+                        
+                        // 如果批次中没有管了，删除批次
+                        if (batch.tubes.length === 0) {
+                            batches.splice(batchIndex, 1);
+                        }
+                        
+                        // 保存数据
+                        await saveBatches(batches);
+                        await saveHistory(history);
+                        
+                        // 刷新显示
+                        renderBatches();
+                        renderHistory();
+                        
+                        showToast('果蝇管已删除', '已移至历史记录', 'success');
+                    }
+                }
+            } catch (error) {
+                console.error('删除果蝇管时出错:', error);
+                showToast('删除失败', '请重试', 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        // 从历史记录恢复
+        async function restoreFromHistory(id) {
+            showLoading();
+            
+            try {
+                const history = await getHistory();
+                const batches = await getBatches();
+                
+                const historyIndex = history.findIndex(item => item.id === id);
+                if (historyIndex !== -1) {
+                    const tube = history[historyIndex];
+                    
+                    // 查找或创建批次
+                    let batch = batches.find(b => b.date === tube.date);
+                    if (!batch) {
+                        batch = {
+                            id: Date.now().toString(),
+                            date: tube.date,
+                            tubes: [],
+                            expanded: true
+                        };
+                        batches.push(batch);
+                    }
+                    
+                    // 添加到批次
+                    batch.tubes.push(tube);
+                    
+                    // 从历史记录中删除
+                    history.splice(historyIndex, 1);
+                    
+                    // 保存数据
+                    await saveBatches(batches);
+                    await saveHistory(history);
+                    
+                    // 刷新显示
+                    renderBatches();
+                    renderHistory();
+                    
+                    showToast('恢复成功', '果蝇管已恢复', 'success');
+                }
+            } catch (error) {
+                console.error('恢复果蝇管时出错:', error);
+                showToast('恢复失败', '请重试', 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        // 从历史记录永久删除
+        async function deleteFromHistory(id) {
+            if (!confirm('确定要永久删除此记录吗？此操作不可撤销。')) return;
+            
+            showLoading();
+            
+            try {
+                const history = await getHistory();
+                
+                const historyIndex = history.findIndex(item => item.id === id);
+                if (historyIndex !== -1) {
+                    history.splice(historyIndex, 1);
+                    await saveHistory(history);
+                    renderHistory();
+                    
+                    showToast('永久删除', '记录已删除', 'success');
+                }
+            } catch (error) {
+                console.error('永久删除记录时出错:', error);
+                showToast('删除失败', '请重试', 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        // 设置复选框状态
+        function updateDeleteButtonState() {
+            const anyChecked = document.querySelectorAll('.tube-checkbox:checked').length > 0;
+            document.getElementById('deleteSelectedTubesBtn').disabled = !anyChecked;
+            
+            const anyHistoryChecked = document.querySelectorAll('.history-checkbox:checked').length > 0;
+            document.getElementById('restoreBtn').disabled = !anyHistoryChecked;
+            document.getElementById('permanentDeleteBtn').disabled = !anyHistoryChecked;
+        }
+        
+        // 导出Excel
+        async function exportToExcel() {
+            showLoading();
+            
+            try {
+                const batches = await getBatches();
+                if (batches.length === 0) {
+                    hideLoading();
+                    showToast('导出失败', '没有可导出的数据', 'warning');
+                    return;
+                }
+                
+                const workbook = XLSX.utils.book_new();
+                
+                batches.forEach(batch => {
+                    const worksheetData = [
+                        ['日期', '类型', '基因型', '天数']
+                    ];
+                    
+                    batch.tubes.forEach(tube => {
+                        const days = calculateDays(tube.date);
+                        worksheetData.push([
+                            tube.date,
+                            getTypeName(tube.type),
+                            formatGenotype(tube),
+                            days
+                        ]);
+                    });
+                    
+                    const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
+                    XLSX.utils.book_append_sheet(workbook, worksheet, batch.date);
+                });
+                
+                XLSX.writeFile(workbook, '果蝇管理记录.xlsx');
+                showToast('导出成功', 'Excel文件已生成', 'success');
+            } catch (error) {
+                console.error('导出Excel时出错:', error);
+                showToast('导出失败', '请重试', 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        // 切换批次展开状态
+        async function toggleBatchExpansion(batchId) {
+            const batches = await getBatches();
+            const batchIndex = batches.findIndex(b => b.id === batchId);
+            
+            if (batchIndex !== -1) {
+                batches[batchIndex].expanded = !batches[batchIndex].expanded;
+                await saveBatches(batches);
+                renderBatches();
+            }
+        }
+        
+        // 切换页面
+        function switchPage(pageId) {
+            // 隐藏所有页面
+            document.querySelectorAll('.page').forEach(page => {
+                page.classList.remove('active');
+            });
+            
+            // 显示目标页面
+            document.getElementById(pageId).classList.add('active');
+            
+            // 更新导航按钮状态
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // 激活当前页面对应的按钮
+            if (pageId === 'addPage') {
+                document.getElementById('addTabBtn').classList.add('active');
+            } else if (pageId === 'managePage') {
+                document.getElementById('manageTabBtn').classList.add('active');
+                renderBatches();
+            } else if (pageId === 'historyPage') {
+                document.getElementById('historyTabBtn').classList.add('active');
+                renderHistory();
+            }
+        }
+        
+        // 用户注册
+        async function registerUser() {
+            const name = document.getElementById('registerName').value.trim();
+            const email = document.getElementById('registerEmail').value.trim();
+            const password = document.getElementById('registerPassword').value;
+            const confirmPassword = document.getElementById('registerConfirmPassword').value;
+            
+            if (!name || !email || !password || !confirmPassword) {
+                showToast('注册失败', '请填写所有字段', 'error');
+                return;
+            }
+            
+            if (password !== confirmPassword) {
+                showToast('注册失败', '两次输入的密码不一致', 'error');
+                return;
+            }
+            
+            showLoading();
+            
+            try {
+                const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+                await userCredential.user.updateProfile({
+                    displayName: name
+                });
+                
+                // 保存用户信息到Realtime Database
+                await database.ref(`users/${userCredential.user.uid}`).set({
+                    name: name,
+                    email: email,
+                    createdAt: new Date().toISOString()
+                });
+                
+                // 设置当前用户
+                currentUserId = userCredential.user.uid;
+                
+                // 初始化基因型列表
+                await saveGenotypes(initialGenotypes);
+                
+                // 切换到主应用
+                document.getElementById('authPage').classList.remove('active');
+                document.getElementById('appPage').classList.add('active');
+                
+                showToast('注册成功', '欢迎使用FlyLab云端管理系统', 'success');
+            } catch (error) {
+                console.error('注册失败:', error);
+                showToast('注册失败', error.message, 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        // 用户登录
+        async function loginUser() {
+            const email = document.getElementById('loginEmail').value.trim();
+            const password = document.getElementById('loginPassword').value;
+            
+            if (!email || !password) {
+                showToast('登录失败', '请填写邮箱和密码', 'error');
+                return;
+            }
+            
+            showLoading();
+            
+            try {
+                const userCredential = await auth.signInWithEmailAndPassword(email, password);
+                currentUserId = userCredential.user.uid;
+                
+                // 切换到主应用
+                document.getElementById('authPage').classList.remove('active');
+                document.getElementById('appPage').classList.add('active');
+                
+                showToast('登录成功', '欢迎回来', 'success');
+            } catch (error) {
+                console.error('登录失败:', error);
+                showToast('登录失败', error.message, 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        // 用户退出
+        async function logoutUser() {
+            showLoading();
+            
+            try {
+                await auth.signOut();
+                currentUserId = null;
+                
+                // 切换到认证页面
+                document.getElementById('appPage').classList.remove('active');
+                document.getElementById('authPage').classList.add('active');
+                
+                // 重置表单
+                document.getElementById('loginEmail').value = '';
+                document.getElementById('loginPassword').value = '';
+                
+                showToast('退出成功', '您已安全退出系统', 'success');
+            } catch (error) {
+                console.error('退出失败:', error);
+                showToast('退出失败', '请重试', 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+        
+        // 初始化页面
+        function initPage() {
+            // 设置默认日期为今天
+            document.getElementById('tubeDate').valueAsDate = new Date();
+            
+            // 添加表单提交事件
+            document.getElementById('tubeForm').addEventListener('submit', addTube);
+            
+            // 添加导出按钮事件
+            document.getElementById('exportBtn').addEventListener('click', exportToExcel);
+            
+            // 添加导航按钮事件
+            document.getElementById('addTabBtn').addEventListener('click', function() {
+                switchPage('addPage');
+            });
+            
+            document.getElementById('manageTabBtn').addEventListener('click', function() {
+                switchPage('managePage');
+            });
+            
+            document.getElementById('historyTabBtn').addEventListener('click', function() {
+                switchPage('historyPage');
+            });
+            
+            // 添加退出按钮事件
+            document.getElementById('logoutBtn').addEventListener('click', logoutUser);
+            
+            // 添加认证按钮事件
+            document.getElementById('loginBtn').addEventListener('click', loginUser);
+            document.getElementById('registerBtn').addEventListener('click', registerUser);
+            
+            // 添加认证切换事件
+            document.getElementById('showRegister').addEventListener('click', function() {
+                document.getElementById('loginSection').classList.add('d-none');
+                document.getElementById('registerSection').classList.remove('d-none');
+            });
+            
+            document.getElementById('showLogin').addEventListener('click', function() {
+                document.getElementById('registerSection').classList.add('d-none');
+                document.getElementById('loginSection').classList.remove('d-none');
+            });
+            
+            // 使用事件委托处理删除操作
+            document.getElementById('batchesContainer').addEventListener('click', function(event) {
+                if (event.target.closest('.delete-batch')) {
+                    const batchId = event.target.closest('.delete-batch').getAttribute('data-batch-id');
+                    deleteBatch(batchId);
+                    return;
+                }
+                
+                if (event.target.closest('.delete-tube')) {
+                    const btn = event.target.closest('.delete-tube');
+                    const batchId = btn.getAttribute('data-batch-id');
+                    const tubeId = btn.getAttribute('data-tube-id');
+                    deleteTube(batchId, tubeId);
+                }
+                
+                // 处理批次展开/折叠
+                if (event.target.closest('.batch-header')) {
+                    const batchId = event.target.closest('.batch-header').getAttribute('data-batch-id');
+                    toggleBatchExpansion(batchId);
+                }
+                
+                // 处理管复选框状态变化
+                if (event.target.matches('.tube-checkbox')) {
+                    updateDeleteButtonState();
+                }
+            });
+            
+            document.getElementById('historyTableBody').addEventListener('click', function(event) {
+                if (event.target.closest('.restore-btn')) {
+                    const btn = event.target.closest('.restore-btn');
+                    const id = btn.getAttribute('data-id');
+                    restoreFromHistory(id);
+                    return;
+                }
+                
+                if (event.target.closest('.delete-btn')) {
+                    const btn = event.target.closest('.delete-btn');
+                    const id = btn.getAttribute('data-id');
+                    deleteFromHistory(id);
+                }
+                
+                // 处理历史记录复选框状态变化
+                if (event.target.matches('.history-checkbox')) {
+                    updateDeleteButtonState();
+                }
+            });
+            
+            // 设置复选框状态事件
+            document.getElementById('selectAllBatches').addEventListener('change', function() {
+                const checkboxes = document.querySelectorAll('.tube-checkbox');
+                checkboxes.forEach(checkbox => {
+                    checkbox.checked = this.checked;
+                });
+                updateDeleteButtonState();
+            });
+            
+            document.getElementById('selectAllHistory').addEventListener('change', function() {
+                const checkboxes = document.querySelectorAll('.history-checkbox');
+                checkboxes.forEach(checkbox => {
+                    checkbox.checked = this.checked;
+                });
+                updateDeleteButtonState();
+            });
+            
+            // 添加搜索功能
+            document.getElementById('searchInput').addEventListener('input', renderBatches);
+            
+            // 初始页面设置
+            switchPage('addPage');
+        }
+        
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', initPage);
+    </script>
+</body>
+</html>
